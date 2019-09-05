@@ -6,6 +6,8 @@
  * LED webconfig pages
  * Make some more ways of notifying the user what's going on via onboard LEDs and the like
  * Customiseable security colors, adjustable brightness, set color order
+ * If we get stuck in a reset loop, maybe turn the brightness right down
+ * Save the current system/security to cut down calls to the ESI and speed things up a bit
  */
 
 #include <ESP8266WiFi.h>
@@ -20,7 +22,7 @@
 #include <WiFiUdp.h>
 
 #include <NeoPixelBus.h>
-#define NUM_LEDS 4
+#define NUM_LEDS 25
 #define colorSaturation 128
 const uint16_t PixelCount = NUM_LEDS; // this example assumes 4 pixels, making it smaller will cause a failure
 const uint8_t PixelPin = D4;
@@ -98,6 +100,7 @@ void wifi_connect ()
 }
 
 
+
 void setup() {
   WiFi.setAutoConnect(false);
   strip.Begin();
@@ -168,19 +171,35 @@ void loop()
   
   if (security_color != security_color_old)
   {
-    int i;
-    for (i = 0;i < NUM_LEDS; i++)
-    {
-      strip.SetPixelColor(i, security_color);
-    }
+    fade_to_color (security_color_old, security_color, 20);
   }
-  Serial.println ("Setting color"); 
-  strip.Show();
-  
+  /*
   Serial.println (security);
   Serial.println (map_security_to_color (security), HEX);
-  delay (250);
+  */
+  delay (20);
 }
+
+void fade_to_color (RgbColor left, RgbColor right, int msec)
+{
+  float progress;
+  int i;
+  RgbColor blended;
+
+  for (progress = 0; progress < 1; progress += 0.01)
+  {
+    blended = RgbColor::LinearBlend(left, right, progress);
+    for (i = 0; i < NUM_LEDS; i++)
+      strip.SetPixelColor(i, blended);
+    strip.Show();
+    delay(msec);      
+  }
+}
+
+/*
+ * Preferences stuff
+ */
+ 
 void prefs_print ()
 {
   Serial.print ("Identifier: ");
@@ -274,6 +293,11 @@ void detect_reset_pin ()
   }
 }
 
+/*
+ * ESI Stuff
+ * 
+ */
+ 
 bool token_expired ()
 {
   if ((time(NULL) - prefs.access_token_time) > 900) //Get a new token if there's less than 10 minutes left
@@ -459,6 +483,7 @@ void eve_get_security ()
   
   if (system_id_old == system_id) //Don't bother updating, we haven't moved
     return;
+  //Fetch the system security for the new system
   String esi_return = eve_get_generic ("https://esi.evetech.net/latest/universe/systems/"+system_id+"/?datasource=tranquility&language=en-us", "security_status", false);
   if (esi_return != "Error")
     security = esi_return.toFloat();
@@ -576,43 +601,6 @@ int map_security_to_color (float security)
 }
 
 /*
-// Helper function that blends one uint8_t toward another by a given amount
-void nblendU8TowardU8( uint8_t& cur, const uint8_t target, uint8_t amount)
-{
-  if( cur == target) return;
-  
-  if( cur < target ) {
-    uint8_t delta = target - cur;
-    delta = scale8_video( delta, amount);
-    cur += delta;
-  } else {
-    uint8_t delta = cur - target;
-    delta = scale8_video( delta, amount);
-    cur -= delta;
-  }
-}
-
-// Blend one CRGB color toward another CRGB color by a given amount.
-// Blending is linear, and done in the RGB color space.
-// This function modifies 'cur' in place.
-CRGB fadeTowardColor( CRGB& cur, const CRGB& target, uint8_t amount)
-{
-  nblendU8TowardU8( cur.red,   target.red,   amount);
-  nblendU8TowardU8( cur.green, target.green, amount);
-  nblendU8TowardU8( cur.blue,  target.blue,  amount);
-  return cur;
-}
-
-// Fade an entire array of CRGBs toward a given background color by a given amount
-// This function modifies the pixel array in place.
-void fadeTowardColor( CRGB* L, uint16_t N, const CRGB& bgColor, uint8_t fadeAmount)
-{
-  for( uint16_t i = 0; i < N; i++) {
-    fadeTowardColor( L[i], bgColor, fadeAmount);
-  }
-}
-*/
-/*
 void flash_onboard_sos ()
 {
   int i;
@@ -678,10 +666,6 @@ void softap_handleForm() {
   //TODO Handle string lengths, wait before restarting
  server.arg("ssid").toCharArray(prefs.ssid, sizeof(prefs.ssid));
  server.arg("password").toCharArray(prefs.password, sizeof(prefs.password));
- /*
- strcpy (prefs.ssid, server.arg("ssid").c_str()); 
- strcpy (prefs.password, server.arg("password").c_str());
- */
  prefs_write();
  String s = "<a href='/'> SSID:" + String (prefs.ssid) + " Password: " + String (prefs.password)+ "Resetting in 5 seconds </a>";
  server.send(200, "text/html", s); //Send web page
