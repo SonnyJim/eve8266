@@ -1,12 +1,11 @@
 /*
  * TODO
  * 
- * Make more C++ like?
- * Write http server for retrival of auth codes
- * Make softAP for initial configurate
- * Move location fetching into a separate thread, so I can do some more fun stuff
+ * Make more C++ like?  strcpy is bad, mkay.
  * Use SSL cert for more secure communication
- * Reset prefs if switch is closed
+ * LED webconfig pages
+ * Make some more ways of notifying the user what's going on via onboard LEDs and the like
+ * Customiseable security colors, adjustable brightness, set color order
  */
 
 #include <ESP8266WiFi.h>
@@ -20,21 +19,27 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 
-#include <FastLED.h>
-#define NUM_LEDS 50
-#define DATA_PIN D4
-#define ORDER BRG
-//#define BRIGHTNESS 5
-CRGB leds[NUM_LEDS];
+#include <NeoPixelBus.h>
+#define NUM_LEDS 4
+#define colorSaturation 128
+const uint16_t PixelCount = NUM_LEDS; // this example assumes 4 pixels, making it smaller will cause a failure
+const uint8_t PixelPin = D4;
+NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(PixelCount, PixelPin);
+RgbColor red(colorSaturation, 0, 0);
+RgbColor green(0, colorSaturation, 0);
+RgbColor blue(0, 0, colorSaturation);
+RgbColor white(colorSaturation);
+RgbColor black(0);
+RgbColor security_color(0);
 
-#define ONBOARD_LED 16
+//#define ONBOARD_LED 2
 #define HARDRESET_PIN D5
 #define WEBCONFIG_PIN D6
 
 #define SOFTAP_SSID "eve8266"
 ESP8266WebServer server(80);
 
-const char* default_identifier = "esp8266"; //Default identifier for the pref data
+const char* default_identifier = "eve8266"; //Default identifier for the pref data
 typedef struct prefs_t
 {
   char identifier[9];
@@ -84,23 +89,24 @@ void wifi_connect ()
   }
   Serial.println("Connected to the WiFi network");
   Serial.println (WiFi.localIP());
-
+/*
   if (MDNS.begin("eve8266")) 
     Serial.println("Starting mDNS responder");
   else
     Serial.println("Error setting up MDNS responder!");
-  
+  */
 }
 
 
 void setup() {
   WiFi.setAutoConnect(false);
-  FastLED.addLeds<WS2811, DATA_PIN, ORDER>(leds, NUM_LEDS);
-  //FastLED.setBrightness (BRIGHTNESS);
-  FastLED.clear();
-  FastLED.show();
+  strip.Begin();
+  strip.SetPixelColor(0, red);
+  strip.Show();
 
+  //pinMode (ONBOARD_LED, OUTPUT);
   pinMode(WEBCONFIG_PIN,INPUT_PULLUP);
+  //digitalWrite(ONBOARD_LED,HIGH);
   
   Serial.begin(115200);
   Serial.println ();
@@ -125,14 +131,12 @@ void setup() {
     timeClient.forceUpdate();
   }
   
-//TODO Error handling
   if (digitalRead (WEBCONFIG_PIN) == 0)
   {
     Serial.println ("Webconfig pin grounded, starting webconfig http server");
     webconfig_start ();
   }
 
-  //TODO Change this to a while so we loop until we get a working refresh token?  or should that loop be in the webservrR?
   if (strcmp (prefs.refresh_token, "") == 0)
   {
     if (strcmp (prefs.secret_key, "") == 0 || strcmp (prefs.client_id, "") == 0)
@@ -144,9 +148,38 @@ void setup() {
     eve_get_access_token ();
   }
   eve_get_refresh_token ();
+  strip.SetPixelColor(1, blue);
+  strip.Show();
   eve_get_token_details ();
+  strip.SetPixelColor(2, green);
+  strip.Show();
   eve_get_corp_id ();
-  digitalWrite(ONBOARD_LED,LOW);
+  //digitalWrite(ONBOARD_LED,LOW);
+
+}
+
+void loop() 
+{
+  RgbColor security_color_old;
+  
+  security_color_old = security_color;
+  eve_get_security ();
+  security_color = RgbColor (HtmlColor(map_security_to_color (security)));
+  
+  if (security_color != security_color_old)
+  {
+    int i;
+    for (i = 0;i < NUM_LEDS; i++)
+    {
+      strip.SetPixelColor(i, security_color);
+    }
+  }
+  Serial.println ("Setting color"); 
+  strip.Show();
+  
+  Serial.println (security);
+  Serial.println (map_security_to_color (security), HEX);
+  delay (250);
 }
 void prefs_print ()
 {
@@ -186,7 +219,10 @@ void prefs_check ()
     strcpy (prefs.refresh_token, "");
     prefs.access_token_time = 0;
     prefs_write ();
+    Serial.println ("Rebooting.....");
+    ESP.restart();
   }
+  
 }
 
 void prefs_clear ()
@@ -213,20 +249,11 @@ void prefs_read ()
 {
   EEPROM.begin(sizeof(prefs_t));
   EEPROM.get (0, prefs);
-  /*
-  if (strlen (prefs.refresh_token) > 64)
-  {
-    Serial.println ("What the actual fook");
-    Serial.println (strlen(prefs.refresh_token));
-    prefs.refresh_token[65] = '\0';
-  }
-  */
   EEPROM.end ();
 }
 
 void detect_reset_pin ()
 {
-  Serial.println ("Checking for reset pins");
   int i = 0;
   pinMode(HARDRESET_PIN, INPUT_PULLUP);
   
@@ -234,6 +261,7 @@ void detect_reset_pin ()
   {
     Serial.print ("Hard reset in ");
     Serial.println (5 - i);
+    delay (1000);
     if (i++ > 5)
     {
       Serial.println("Hard reset activated, clearing ALL stored preferences and resetting in 10 seconds");
@@ -242,7 +270,7 @@ void detect_reset_pin ()
       prefs_clear ();
       ESP.restart();
     }
-    delay (1000);   
+       
   }
 }
 
@@ -321,8 +349,8 @@ int eve_get_access_token ()
     Serial.print("Error on HTTP request: ");
     Serial.println(httpCode);
     Serial.println (http.getString());
-    while (1)
-      delay (1000);
+    //flash_onboard_sos ();
+    
   }
   http.end();
   return httpCode;
@@ -547,6 +575,7 @@ int map_security_to_color (float security)
     return 0xC30303;
 }
 
+/*
 // Helper function that blends one uint8_t toward another by a given amount
 void nblendU8TowardU8( uint8_t& cur, const uint8_t target, uint8_t amount)
 {
@@ -582,51 +611,31 @@ void fadeTowardColor( CRGB* L, uint16_t N, const CRGB& bgColor, uint8_t fadeAmou
     fadeTowardColor( L[i], bgColor, fadeAmount);
   }
 }
-
-void loop() 
+*/
+/*
+void flash_onboard_sos ()
 {
-  CRGB color;
-  CRGB color_old;
-  eve_get_security ();
-
-  color_old = color;
-  color = map_security_to_color (security);
-
-  if (color != color_old)
-  {
-    int i;
-    for (i = 0;i < 255; i++)
-    {
-      fadeTowardColor(leds, NUM_LEDS, color, 1);
-      FastLED.show();
-      delay (10);
-    }
-  }
-  Serial.println (security);
-  Serial.println (map_security_to_color (security), HEX);
-  /*
   int i;
-  for (i = 0; i < NUM_LEDS; i++)
+  while (1)
   {
-    leds[i] = color; 
+      for (i = 0; i++;i < 3)
+      {
+        digitalWrite(ONBOARD_LED,LOW);
+        delay(500);
+        digitalWrite(ONBOARD_LED,HIGH);
+        delay(500);
+      }
+      for (i = 0; i++;i < 3)
+      {
+        digitalWrite(ONBOARD_LED,LOW);
+        delay(1000);
+        digitalWrite(ONBOARD_LED,HIGH);
+        delay(1000);
+      }
   }
-  FastLED.show();
-  */
-  delay (250);
-
-  /*
-  if ((WiFi.status() == WL_CONNECTED)) 
-  {
- 
-    Serial.println (timeClient.getFormattedTime());
-    eve_get_corp_wallet ();
-    eve_get_security ();
-  }
- 
-  delay(10000);
-  */
- 
 }
+*/
+
 /*
  * SoftAP Stuffs
  * TODO:  Prettify the webpage, change it to a so we aren't storing sensitive details in the URL
@@ -708,7 +717,7 @@ String webconfig_page = R"=====(
 <body>
 <h2>EVE8266 Mood Lighting<h2>
 <h3>Callback URL and client_id/secret_key setup</h3>
-Step 1:  Log into <a href="https://developers.eveonline.com">https://developers.eveonline.com</a> and click on 'Manage Applications'
+Step 1:  Log into <a href="https://developers.eveonline.com" target="_blank">https://developers.eveonline.com</a> and click on 'Manage Applications'
 <br>
 Step 2: Click on 'Create New Application'
 <br>
@@ -718,7 +727,7 @@ Step 4: Set connection type to "Authentication & API Access"
 <br>
 Step 5: Under 'Permissions', add 'esi-location.read_location.v1' to the requested scopes list
 <br>
-Step 6: Copy and paste the following into the callback url box and click 'Create application'
+Step 6: Copy and paste the following URL into the callback URL box and click 'Create application'
 <br>
 <br>
 $CALLBACKURL
@@ -749,6 +758,7 @@ String authcode_page = R"=====(
 <h3>Authorise reading character location</h3>
 <br>
 Step 9: Log into EVE Online and authorise the application to locate your characters location
+<br>
 <a href="$AUTH_URL">
 <img src="https://web.ccpgamescdn.com/eveonlineassets/developers/eve-sso-login-white-large.png">
 </a>
@@ -766,7 +776,6 @@ void webconfig_handleRoot()
 
 void webconfig_handleForm() 
 {
-  //TODO Handle string lengths, wait before restarting, fetch a valid auth code before dipping out of the loop
  server.arg("client_id").toCharArray(prefs.client_id, sizeof(prefs.client_id));
  server.arg("secret_key").toCharArray(prefs.secret_key, sizeof(prefs.secret_key));
  prefs_write ();
@@ -784,11 +793,11 @@ void webconfig_handleCallback ()
   auth_code = server.arg("code");
   if (eve_get_access_token () != 200)
   {
-    s = "<!DOCTYPE html><html><body><h2>Failed to fetch access token<h2></body></html>";
+    s = "<!DOCTYPE html><html><body><h2>Failed to fetch access token!</h2><br>This is bad, you probably messed something up.</body></html>";
   }
   else
   {
-    s = "<!DOCTYPE html><html><body><h2>Fetched new access token!</h2><br>Rebooting in 5 seconds, don't forget to remove webconfig jumper</body></html>";
+    s = "<!DOCTYPE html><html><body><h2>Fetched new access token!</h2><br>Rebooting in 5 seconds<br>Don't forget to remove webconfig jumper if you installed it</body></html>";
   }
   server.send(200, "text/html", s);
   delay(5000);
