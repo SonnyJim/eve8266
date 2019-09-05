@@ -5,7 +5,7 @@ Set's the color of a string of LED lights according to what system security your
 
 Why?
 
-Because I'd thought it would be fun.  Also I wanted to see if I could get an ESP8266 had enough grunt to talk to the ESI API.
+Because I'd thought it would be fun.  Also I wanted to see if a ESP8266 had enough grunt to talk to the ESI API.
 
 Yeah but why though?
 
@@ -15,7 +15,7 @@ How does it work?
 
 Short version: A cheap microcontroller with WiFi asks the EVE servers where your character is, then changes the color of the lights accordingly.
 
-Long version:  The ESP8266 connects to a wifi network, authorizes with the ESI API using httpclient and queries where the characters location is.  It then fetches the system security via a JSON request and decodes it to a color, based on the color of the waypoint markers.  It then feeds a string of WS2811 LEDs via a 3.3v -> 5v level shifter using the FASTLed library.  It repeats every half second so it's always updated by the time your character is out of warp.
+Long version:  The ESP8266 connects to a wifi network, authorizes with the ESI API using httpclient and queries where the characters location is.  It then fetches the system security via a JSON request and decodes it to a color, based on the color of the waypoint markers.  It then feeds a string of WS2811 LEDs via a 3.3v -> 5v level shifter using the NeoPixelBus library.  It repeats every half second so it's always updated by the time your character is out of warp.
 
 Does it do anything else?
 
@@ -29,7 +29,7 @@ Ingredients
 
 ESP8266
 
-A 3.3v -> 5v level shifter
+A 3.3v -> 5v level shifter, a lot of WS2811 strings won't work properly at 3.3v.
 
 Some lights
 
