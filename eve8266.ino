@@ -21,12 +21,15 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 
-#include <NeoPixelBus.h>
-#define NUM_LEDS 25
+#include <NeoPixelBrightnessBus.h>
+//#include <NeoPixelBus.h>
+#define BRIGHTNESS 255
 #define colorSaturation 128
-const uint16_t PixelCount = NUM_LEDS; // this example assumes 4 pixels, making it smaller will cause a failure
+#define MAX_PIXEL_COUNT 256
+//const uint16_t PixelCount = 256; // 256 should be enough for anyone
 const uint8_t PixelPin = D4;
-NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(PixelCount, PixelPin);
+NeoPixelBrightnessBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
+//NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(PixelCount, PixelPin);
 RgbColor red(colorSaturation, 0, 0);
 RgbColor green(0, colorSaturation, 0);
 RgbColor blue(0, 0, colorSaturation);
@@ -52,6 +55,9 @@ typedef struct prefs_t
   char access_token[257];
   char refresh_token[65];
   time_t access_token_time;
+  int pixel_count;
+  int brightness;
+  bool mdns;
 };
 
 prefs_t prefs;
@@ -60,7 +66,6 @@ String character_id = "";
 String corp_id = "";
 String character_name = "";
 String expires_on = "";
-
 
 const String user_agent = "EVE8266 Mood lighting";
 String auth_code;
@@ -91,12 +96,12 @@ void wifi_connect ()
   }
   Serial.println("Connected to the WiFi network");
   Serial.println (WiFi.localIP());
-/*
+
   if (MDNS.begin("eve8266")) 
     Serial.println("Starting mDNS responder");
   else
     Serial.println("Error setting up MDNS responder!");
-  */
+  
 }
 
 
@@ -104,6 +109,7 @@ void wifi_connect ()
 void setup() {
   WiFi.setAutoConnect(false);
   strip.Begin();
+  strip.SetBrightness(BRIGHTNESS);
   strip.SetPixelColor(0, red);
   strip.Show();
 
@@ -189,7 +195,7 @@ void fade_to_color (RgbColor left, RgbColor right, int msec)
   for (progress = 0; progress < 1; progress += 0.01)
   {
     blended = RgbColor::LinearBlend(left, right, progress);
-    for (i = 0; i < NUM_LEDS; i++)
+    for (i = 0; i < prefs.pixel_count; i++)
       strip.SetPixelColor(i, blended);
     strip.Show();
     delay(msec);      
@@ -215,7 +221,13 @@ void prefs_print ()
   Serial.print ("Access token: ");
   Serial.println (prefs.access_token);
   Serial.print ("Refresh token: ");
-  Serial.println (prefs.refresh_token);  
+  Serial.println (prefs.refresh_token); 
+  Serial.print ("Number of pixels: ");
+  Serial.println (prefs.pixel_count);
+  Serial.print ("Brightness: ");
+  Serial.println (prefs.brightness);
+  Serial.print ("MDNS responder: ");
+  Serial.println (prefs.mdns); 
   Serial.print ("Size: ");
   Serial.println (sizeof(prefs));
 }
@@ -237,6 +249,9 @@ void prefs_check ()
     strcpy (prefs.access_token, "");
     strcpy (prefs.refresh_token, "");
     prefs.access_token_time = 0;
+    prefs.pixel_count = 4;
+    prefs.mdns = false;
+    prefs.brightness = 255;
     prefs_write ();
     Serial.println ("Rebooting.....");
     ESP.restart();
@@ -638,8 +653,7 @@ const char wifi_page[] = R"=====(
 <!DOCTYPE html>
 <html>
 <body>
- 
-<h2>EVE8266 EVE Mood Lighting<h2>
+<h2>EVE8266 Mood Lighting</h2>
 <h3>Wifi configuration</h3>
  
 <form action="/wifiset" method="POST">
@@ -695,11 +709,59 @@ void softap_start ()
 
 bool webconfig_active;
 
+String ledconfig_page = R"=====(
+<!DOCTYPE html>
+<html>
+<body>
+<h2>EVE8266 Mood Lighting</h2>
+<h3>LED/Network Setup</h3>
+<form action="/ledconfigset" method="POST">
+  Note: Make sure your power supply can support the brightness/number of LEDs, otherwise you'll get stuck in a reboot loop!<br>
+  <br>
+  Number of LEDs <input type="text" name="pixel_count" value="$PIXEL_COUNT" size=3><br>
+  Brightness <input type="range" name="brightness" min="0" max="255" value="$BRIGHTNESS"><br>
+  <br>
+  MDNS <input type="checkbox" id="mdns" name="mdns" $MDNS_CHECKED><br>
+  <br>
+  <input type="submit" value="Apply"> 
+</form>
+<br>
+<form action="/reboot" method="POST"> <input type="submit" value="Reboot"></form>
+</body>
+</html>
+)=====";
+
+void webconfig_handleLedconfig() 
+{
+ String s = ledconfig_page;
+ s.replace("$PIXEL_COUNT", String(prefs.pixel_count));
+ s.replace("$BRIGHTNESS", String(prefs.brightness));
+ if (prefs.mdns)
+  s.replace("$MDNS_CHECKED", "checked");
+ else
+  s.replace("$MDNS_CHECKED", "");
+ server.send(200, "text/html", s);
+}
+
+void webconfig_handleLedForm() 
+{
+
+ prefs.pixel_count = server.arg("pixel_count").toInt();
+ if (prefs.pixel_count > MAX_PIXEL_COUNT)
+  prefs.pixel_count = MAX_PIXEL_COUNT;
+ prefs.brightness = server.arg("brightness").toInt();
+ prefs.mdns = server.arg("mdns");
+ prefs_write ();
+
+ String s = "<!DOCTYPE html><html><body><h2>OK!</h2></body></html>";
+
+ server.send(200, "text/html", s);
+}
 String webconfig_page = R"=====(
 <!DOCTYPE html>
 <html>
 <body>
-<h2>EVE8266 Mood Lighting<h2>
+<h2>EVE8266 Mood Lighting</h2>
 <h3>Callback URL and client_id/secret_key setup</h3>
 Step 1:  Log into <a href="https://developers.eveonline.com" target="_blank">https://developers.eveonline.com</a> and click on 'Manage Applications'
 <br>
@@ -729,19 +791,20 @@ Step 8: Copy and paste the client ID and secret key settings into the boxes belo
   <input type="text" name="secret_key" value="" size=64>
   <br>
   <input type="submit" value="Submit"> 
-</form> 
+</form>
 </body>
 </html>
 )=====";
 
-String authcode_page = R"=====(
+const String authcode_page = R"=====(
 <!DOCTYPE html>
 <html>
 <body>
 <h2>EVE8266 Mood Lighting<h2>
 <h3>Authorise reading character location</h3>
 <br>
-Step 9: Log into EVE Online and authorise the application to locate your characters location
+Log into EVE Online and authorise the application to retrieve your characters location
+<br>
 <br>
 <a href="$AUTH_URL">
 <img src="https://web.ccpgamescdn.com/eveonlineassets/developers/eve-sso-login-white-large.png">
@@ -758,6 +821,8 @@ void webconfig_handleRoot()
  server.send(200, "text/html", s);
 }
 
+
+
 void webconfig_handleForm() 
 {
  server.arg("client_id").toCharArray(prefs.client_id, sizeof(prefs.client_id));
@@ -771,20 +836,51 @@ void webconfig_handleForm()
  server.send(200, "text/html", s);
 }
 
+String authsuccess_page = R"=====(
+<!DOCTYPE html>
+<html>
+<body>
+<h2>EVE8266 Mood Lighting<h2>
+<h3>Authorisation successfull!</h3>
+Don't forget to remove webconfig jumper if you installed it, otherwise click the link below to proceed to LED configuration<br>
+<a href="$LEDCONFIG_URL">Setup LED configuration</a>
+</body>
+</html>
+)=====";
+
+String authfailure_page = R"=====(
+<!DOCTYPE html>
+<html>
+<body>
+<h2>EVE8266 Mood Lighting<h2>
+<h3>Authorisation failed :(</h3>
+Failed to fetch access token!</h2><br>This is bad, you probably messed something up.<br>
+Click the link below to start again<br>
+<a href="$AUTH_URL">Restart authorisation</a>
+</body>
+</html>
+)=====";
+
 void webconfig_handleCallback ()
 {
   String s;
   auth_code = server.arg("code");
   if (eve_get_access_token () != 200)
   {
-    s = "<!DOCTYPE html><html><body><h2>Failed to fetch access token!</h2><br>This is bad, you probably messed something up.</body></html>";
+    s = authfailure_page;
+    s.replace("AUTH_URL", "http://"+WiFi.localIP().toString());
   }
   else
   {
-    s = "<!DOCTYPE html><html><body><h2>Fetched new access token!</h2><br>Rebooting in 5 seconds<br>Don't forget to remove webconfig jumper if you installed it</body></html>";
+    s = authsuccess_page;
+    s.replace("LEDCONFIG_URL", "http://"+WiFi.localIP().toString()+"/ledconfig");
+    
   }
   server.send(200, "text/html", s);
-  delay(5000);
+}
+
+void webconfig_handleReboot ()
+{
   ESP.restart();
 }
 
@@ -796,6 +892,10 @@ void webconfig_start ()
   server.on("/", webconfig_handleRoot);
   server.on("/webconfigset", webconfig_handleForm);
   server.on("/callback/", webconfig_handleCallback);
+  server.on("/ledconfig", webconfig_handleLedconfig);
+  server.on("/ledconfigset", webconfig_handleLedForm);
+  server.on("/reboot", webconfig_handleReboot);
+  
   server.begin();
   Serial.println("Webconfig server started");
   while (webconfig_active)
