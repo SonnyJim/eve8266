@@ -7,7 +7,8 @@
  * Make some more ways of notifying the user what's going on via onboard LEDs and the like
  * Customiseable security colors, adjustable brightness, set color order
  * If we get stuck in a reset loop, maybe turn the brightness right down
- * Save the current system/security to cut down calls to the ESI and speed things up a bit
+ * Check to see if a character is online before turning the lights on esi-location.read_online.v1
+ * 
  */
 
 #include <ESP8266WiFi.h>
@@ -162,7 +163,7 @@ void setup() {
   eve_get_token_details ();
   strip.SetPixelColor(2, green);
   strip.Show();
-  eve_get_corp_id ();
+  //eve_get_corp_id ();
   //digitalWrite(ONBOARD_LED,LOW);
 
 }
@@ -170,7 +171,19 @@ void setup() {
 void loop() 
 {
   RgbColor security_color_old;
-  
+
+  if (!eve_character_online ())
+  {
+    strip.ClearTo(0);
+    strip.Show();
+    Serial.println ("Character not online");
+    if (security_color != 0)
+    {
+      fade_to_color (security_color, 0, 30);
+      security_color = 0;
+    }
+    return;
+  }
   security_color_old = security_color;
   eve_get_security ();
   security_color = RgbColor (HtmlColor(map_security_to_color (security)));
@@ -486,6 +499,16 @@ String eve_get_location ()
   return eve_get_generic ("https://esi.evetech.net/latest/characters/"+ character_id + "/location/?datasource=tranquility", "solar_system_id", true);
 }
 
+bool eve_character_online ()
+{
+  String esidata;
+  esidata = eve_get_generic ("https://esi.evetech.net/latest/characters/"+ character_id + "/online/?datasource=tranquility", "online", true);
+  if (esidata == "true")
+    return true;
+  else
+    return false;
+}
+
 void eve_get_security ()
 {
   String system_id_old = system_id;
@@ -771,7 +794,7 @@ Step 3: Fill out the name and description fields with something, it's not vitall
 <br>
 Step 4: Set connection type to "Authentication & API Access"
 <br>
-Step 5: Under 'Permissions', add 'esi-location.read_location.v1' to the requested scopes list
+Step 5: Under 'Permissions', add 'esi-location.read_location.v1' and 'esi-location.read_online.v1' to the requested scopes list
 <br>
 Step 6: Copy and paste the following URL into the callback URL box and click 'Create application'
 <br>
@@ -803,7 +826,7 @@ const String authcode_page = R"=====(
 <h2>EVE8266 Mood Lighting<h2>
 <h3>Authorise reading character location</h3>
 <br>
-Log into EVE Online and authorise the application to retrieve your characters location
+Log into EVE Online and authorise the application to retrieve your characters location and online status
 <br>
 <br>
 <a href="$AUTH_URL">
@@ -830,7 +853,7 @@ void webconfig_handleForm()
  prefs_write ();
 
  String callback_url = "http://"+WiFi.localIP().toString()+"/callback";
- String auth_url = "https://login.eveonline.com/oauth/authorize?response_type=code&redirect_uri="+callback_url+"/&client_id="+prefs.client_id+"&scope=esi-location.read_location.v1";
+ String auth_url = "https://login.eveonline.com/oauth/authorize?response_type=code&redirect_uri="+callback_url+"/&client_id="+prefs.client_id+"&scope=esi-location.read_location.v1%20esi-location.read_online.v1";
  String s = authcode_page;
  s.replace("$AUTH_URL", auth_url);
  server.send(200, "text/html", s);
@@ -843,6 +866,7 @@ String authsuccess_page = R"=====(
 <h2>EVE8266 Mood Lighting<h2>
 <h3>Authorisation successfull!</h3>
 Don't forget to remove webconfig jumper if you installed it, otherwise click the link below to proceed to LED configuration<br>
+<br>
 <a href="$LEDCONFIG_URL">Setup LED configuration</a>
 </body>
 </html>
@@ -868,12 +892,12 @@ void webconfig_handleCallback ()
   if (eve_get_access_token () != 200)
   {
     s = authfailure_page;
-    s.replace("AUTH_URL", "http://"+WiFi.localIP().toString());
+    s.replace("$AUTH_URL", "http://"+WiFi.localIP().toString());
   }
   else
   {
     s = authsuccess_page;
-    s.replace("LEDCONFIG_URL", "http://"+WiFi.localIP().toString()+"/ledconfig");
+    s.replace("$LEDCONFIG_URL", "http://"+WiFi.localIP().toString()+"/ledconfig");
     
   }
   server.send(200, "text/html", s);
@@ -881,6 +905,7 @@ void webconfig_handleCallback ()
 
 void webconfig_handleReboot ()
 {
+  //TODO Probably want to show a page here or something
   ESP.restart();
 }
 
