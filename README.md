@@ -56,6 +56,8 @@ Also it gives you a chance to see if the LED RGB order is correct:
 
 1st LED Red = Booting, 2nd LED Blue = Connected to WiFi, 3rd LED Green = Authorisation successful.
 
+By default, it only lights the first 4 LEDs until you edit the number of connected LEDs on the http://$IP_OF_NODEMCU/ledconfig page.  This is a safeguard against people using a PC USB port to power the lights, which can only supply about 0.5A and will cause the NodeMCU to fall into a brown-out/reset loop.
+
 For further troubleshooting, plug the NodeMCU in via USB and use a terminal emulator set to 115200.
 
 FAQ
