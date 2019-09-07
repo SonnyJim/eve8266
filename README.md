@@ -1,5 +1,5 @@
 # eve8266
-What's it do?
+What do?
 
 Sets the color of a string of LED lights according to what system security your character is in.
 
