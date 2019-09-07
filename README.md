@@ -23,7 +23,7 @@ Not really, I wanted to do some more complicated lighting effects like a larson 
 
 Can I buy one?
 
-Just make one, it's not that hard.  The components cost less than $40 if you shop around, wiring it up will take about 20 minutes if you know what you are doing.  You might have to solder a few wires but being an EVE nerd you'll probably know someone who can do that for you.  The only fiddly part is setting up the ESI authorisation, which requires making a developer application with CCP.
+Just make one, it's not that hard.  The components cost less than $40 if you shop around, wiring it up will take about 20 minutes if you know what you are doing.  You might have to solder a few wires but being an EVE nerd you'll probably know someone who can do that for you.  The only fiddly part is setting up the ESI authorisation, which requires registering a developer application with CCP.  The setup wizard will guide you through this part step-by-step.
 
 Ingredients:
 
@@ -57,3 +57,14 @@ Also it gives you a chance to see if the LED RGB order is correct:
 1st LED Red = Booting, 2nd LED Blue = Connected to WiFi, 3rd LED Green = Authorisation successful.
 
 For further troubleshooting, plug the NodeMCU in via USB and use a terminal emulator set to 115200.
+
+FAQ
+
+Q.  This is silly and pointless
+A.  That is the correct response.
+
+Q.  Do I need to register the application with the same account I want to track?
+A.  No.  You can register the application with one account and track the character on another.  If I wasn't so lazy, I'd setup an authorisation webserver for other people to use (like Tripwire does), but then I don't want to be responsible for knowing where your character is.  Doing it this semi-convulated way means you and only you can track your characters location.
+
+Q.  Will you sell me one?
+A.  Maybe.  If I got enough orders to make it worthwhile (ie over 10) I might get some PCBs made up and sell them either as kits or fully assembled and tested.  Maybe get some EVE signs laser cut or something like that.
