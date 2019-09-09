@@ -3,12 +3,12 @@
  * 
  * Make more C++ like?  strcpy is bad, mkay.
  * Use SSL cert for more secure communication
- * LED webconfig pages
  * Make some more ways of notifying the user what's going on via onboard LEDs and the like
  * Customiseable security colors, adjustable brightness, set color order
  * If we get stuck in a reset loop, maybe turn the brightness right down
- * Check to see if a character is online before turning the lights on esi-location.read_online.v1
- * 
+ * Use an async webserver
+ * Allow static IP configuration
+ * LED test page/customizable colors
  */
 
 #include <ESP8266WiFi.h>
@@ -23,14 +23,11 @@
 #include <WiFiUdp.h>
 
 #include <NeoPixelBrightnessBus.h>
-//#include <NeoPixelBus.h>
 #define BRIGHTNESS 255
 #define colorSaturation 128
-#define MAX_PIXEL_COUNT 256
-//const uint16_t PixelCount = 256; // 256 should be enough for anyone
+#define MAX_PIXEL_COUNT 256 // 256 should be enough for anyone
 const uint8_t PixelPin = D4;
 NeoPixelBrightnessBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(MAX_PIXEL_COUNT, PixelPin);
-//NeoPixelBus<NeoRgbFeature, NeoEsp8266Uart1800KbpsMethod> strip(PixelCount, PixelPin);
 RgbColor red(colorSaturation, 0, 0);
 RgbColor green(0, colorSaturation, 0);
 RgbColor blue(0, 0, colorSaturation);
@@ -105,8 +102,6 @@ void wifi_connect ()
   
 }
 
-
-
 void setup() {
   WiFi.setAutoConnect(false);
   strip.Begin();
@@ -124,7 +119,7 @@ void setup() {
    
   prefs_check ();
   prefs_read ();
-  prefs_print (); //TODO probably want to remove this once it's all working, security risk
+  //prefs_print ();
   detect_reset_pin ();
   if (strcmp (prefs.ssid, "") == 0)
   {
@@ -163,7 +158,6 @@ void setup() {
   eve_get_token_details ();
   strip.SetPixelColor(2, green);
   strip.Show();
-  //eve_get_corp_id ();
   //digitalWrite(ONBOARD_LED,LOW);
 
 }
@@ -177,7 +171,7 @@ void loop()
     strip.ClearTo(0);
     strip.Show();
     Serial.println ("Character not online");
-    if (security_color != 0)
+    if (security_color != 0) //If the character was previously online, fade out nicely
     {
       fade_to_color (security_color, 0, 30);
       security_color = 0;
@@ -192,10 +186,6 @@ void loop()
   {
     fade_to_color (security_color_old, security_color, 20);
   }
-  /*
-  Serial.println (security);
-  Serial.println (map_security_to_color (security), HEX);
-  */
   delay (20);
 }
 
@@ -308,16 +298,20 @@ void detect_reset_pin ()
   {
     Serial.print ("Hard reset in ");
     Serial.println (5 - i);
-    delay (1000);
+    strip.ClearTo(0);
+    strip.SetPixelColor(0, red);
+    strip.Show();
+    delay(500);
+    strip.SetPixelColor(0, 0);
+    strip.Show();
+    delay(500);
+    
     if (i++ > 5)
     {
-      Serial.println("Hard reset activated, clearing ALL stored preferences and resetting in 10 seconds");
-      //TODO Maybe flash the LEDs or something
-      delay(10000);
+      Serial.println("Hard reset activated, clearing ALL stored preferences and resetting");
       prefs_clear ();
       ESP.restart();
-    }
-       
+    }      
   }
 }
 
@@ -664,7 +658,7 @@ void flash_onboard_sos ()
 
 /*
  * SoftAP Stuffs
- * TODO:  Prettify the webpage, change it to a so we aren't storing sensitive details in the URL
+ * TODO:  Prettify the webpage
  */
 
 IPAddress softap_ip(192,168,4,1);
@@ -704,8 +698,9 @@ void softap_handleForm() {
  server.arg("ssid").toCharArray(prefs.ssid, sizeof(prefs.ssid));
  server.arg("password").toCharArray(prefs.password, sizeof(prefs.password));
  prefs_write();
- String s = "<a href='/'> SSID:" + String (prefs.ssid) + " Password: " + String (prefs.password)+ "Resetting in 5 seconds </a>";
+ String s = "<!DOCTYPE html><html><body><h2>EVE8266 Mood Lighting</h2>SSID:" + String (prefs.ssid) + " Password: " + String (prefs.password)+ "<br>Resetting in 5 seconds</body></html>";
  server.send(200, "text/html", s); //Send web page
+ delay(5000);
  ESP.restart();
 }
 
@@ -766,6 +761,15 @@ void webconfig_handleLedconfig()
  server.send(200, "text/html", s);
 }
 
+String ledform_page = R"=====(
+<!DOCTYPE html>
+<html>
+<body><h2>LED preferences updated!</h2><br>
+<form action="/reboot" method="POST"> <input type="submit" value="Reboot">
+</form>
+</body>
+</html>
+)=====";
 void webconfig_handleLedForm() 
 {
 
@@ -775,10 +779,9 @@ void webconfig_handleLedForm()
  prefs.brightness = server.arg("brightness").toInt();
  prefs.mdns = server.arg("mdns");
  prefs_write ();
+ //String s = "";
 
- String s = "<!DOCTYPE html><html><body><h2>OK!</h2></body></html>";
-
- server.send(200, "text/html", s);
+ server.send(200, "text/html", ledform_page);
 }
 String webconfig_page = R"=====(
 <!DOCTYPE html>
